@@ -2,6 +2,10 @@
 
 DOMAIN = "etekcity_fitness_scale_ble"
 
+# Frontend card constants
+CARD_URL_BASE = f"/{DOMAIN}"
+CARD_FILENAME = "etekcity-scale-card.js"
+
 # Legacy constants (used for migration from v1)
 CONF_CALC_BODY_METRICS = "calculate body metrics"
 CONF_SEX = "sex"

@@ -17,6 +17,8 @@ from homeassistant.helpers import config_validation as cv
 from urllib.parse import unquote
 
 from .const import (
+    CARD_FILENAME,
+    CARD_URL_BASE,
     CONF_BIRTHDATE,
     CONF_BODY_METRICS_ENABLED,
     CONF_CALC_BODY_METRICS,
@@ -76,6 +78,189 @@ SERVICE_REMOVE_MEASUREMENT_SCHEMA = vol.Schema(
     },
     extra=vol.ALLOW_EXTRA,
 )
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the Etekcity Fitness Scale BLE component (runs once, not per entry).
+
+    Registers:
+    - Static file path for the custom Lovelace card JS
+    - Lovelace resource (auto-registers in storage mode)
+    - WebSocket API for card configuration data
+    """
+    import pathlib
+    from homeassistant.components.http import StaticPathConfig
+    import homeassistant.components.websocket_api as websocket_api
+
+    hass.data.setdefault(DOMAIN, {})
+
+    # --- Register static file path for the card JS ---
+    frontend_dir = pathlib.Path(__file__).parent / "frontend"
+    card_url = f"{CARD_URL_BASE}/{CARD_FILENAME}"
+
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(card_url, str(frontend_dir / CARD_FILENAME), cache_headers=False)]
+    )
+    _LOGGER.debug("Registered static path: %s -> %s", card_url, frontend_dir / CARD_FILENAME)
+
+    # --- Auto-register Lovelace resource (storage mode) ---
+    # Read version from manifest for cache busting
+    import json
+
+    manifest_path = pathlib.Path(__file__).parent / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        version = manifest.get("version", "0.0.0")
+    except Exception:
+        version = "0.0.0"
+
+    resource_url = f"{card_url}?v={version}"
+
+    # Try to register as a Lovelace resource (only works in storage mode)
+    try:
+        from homeassistant.components.lovelace.resources import (
+            ResourceStorageCollection,
+        )
+
+        lovelace = hass.data.get("lovelace")
+        if lovelace and hasattr(lovelace, "resources") and isinstance(
+            lovelace.resources, ResourceStorageCollection
+        ):
+            # Check if already registered
+            existing = [
+                r
+                for r in lovelace.resources.async_items()
+                if CARD_FILENAME in r.get("url", "")
+            ]
+            if not existing:
+                await lovelace.resources.async_create_item(
+                    {"res_type": "module", "url": resource_url}
+                )
+                _LOGGER.info("Auto-registered Lovelace resource: %s", resource_url)
+            else:
+                # Update URL if version changed
+                for r in existing:
+                    if r.get("url") != resource_url:
+                        await lovelace.resources.async_update_item(
+                            r["id"], {"url": resource_url}
+                        )
+                        _LOGGER.info("Updated Lovelace resource URL: %s", resource_url)
+        else:
+            _LOGGER.debug(
+                "Lovelace storage mode not available. "
+                "To use the scale card in YAML mode, add this to your Lovelace config:\n"
+                "  resources:\n"
+                "    - url: %s\n"
+                "      type: module",
+                resource_url,
+            )
+    except Exception as err:
+        _LOGGER.debug("Could not auto-register Lovelace resource: %s", err)
+
+    # --- Register WebSocket API ---
+    @websocket_api.websocket_command(
+        {vol.Required("type"): f"{DOMAIN}/card_config"}
+    )
+    @websocket_api.async_response
+    async def websocket_card_config(
+        hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+    ) -> None:
+        """Return card configuration with user-to-entity mapping."""
+        from homeassistant.helpers import device_registry as dr, entity_registry as er
+
+        device_reg = dr.async_get(hass)
+        entity_reg = er.async_get(hass)
+
+        scales = []
+        for entry_id, coord in hass.data.get(DOMAIN, {}).items():
+            if not isinstance(coord, ScaleDataUpdateCoordinator):
+                continue
+
+            # Find the device_id for this coordinator
+            device_id = None
+            for device in device_reg.devices.values():
+                if entry_id in device.config_entries:
+                    device_id = device.id
+                    break
+
+            if not device_id:
+                continue
+
+            # Build user data with entity mappings
+            users = []
+            for profile in coord.get_user_profiles():
+                user_id = profile.get(CONF_USER_ID, "")
+                user_name = profile.get(CONF_USER_NAME, "")
+                person_entity = profile.get(CONF_PERSON_ENTITY)
+                has_body_metrics = profile.get(CONF_BODY_METRICS_ENABLED, False)
+
+                # Find entity IDs for this user by matching unique_id prefix
+                from .const import get_sensor_unique_id
+
+                entities = {}
+                # Build list of sensor keys to look for
+                sensor_keys = ["weight", "impedance"]
+                if has_body_metrics:
+                    sensor_keys.extend([
+                        "body_mass_index",
+                        "body_fat_percentage",
+                        "fat_free_weight",
+                        "subcutaneous_fat_percentage",
+                        "visceral_fat_value",
+                        "body_water_percentage",
+                        "basal_metabolic_rate",
+                        "skeletal_muscle_percentage",
+                        "muscle_mass",
+                        "bone_mass",
+                        "protein_percentage",
+                        "metabolic_age",
+                    ])
+
+                for key in sensor_keys:
+                    unique_id = get_sensor_unique_id(
+                        coord.device_name, user_id, key
+                    )
+                    entity_entry = entity_reg.async_get_entity_id(
+                        "sensor", DOMAIN, unique_id
+                    )
+                    if entity_entry:
+                        entities[key] = entity_entry
+
+                users.append(
+                    {
+                        "user_id": user_id,
+                        "name": user_name,
+                        "person_entity": person_entity,
+                        "has_body_metrics": has_body_metrics,
+                        "entities": entities,
+                    }
+                )
+
+            # Find diagnostic entity IDs
+            diagnostics = {}
+            for diag_key in ["user_directory", "pending_measurements"]:
+                unique_id = f"{coord.device_name}_{diag_key}"
+                entity_entry = entity_reg.async_get_entity_id(
+                    "sensor", DOMAIN, unique_id
+                )
+                if entity_entry:
+                    diagnostics[diag_key] = entity_entry
+
+            scales.append(
+                {
+                    "device_id": device_id,
+                    "device_name": coord.device_name,
+                    "users": users,
+                    "diagnostics": diagnostics,
+                }
+            )
+
+        connection.send_result(msg["id"], {"scales": scales})
+
+    websocket_api.async_register_command(hass, websocket_card_config)
+    _LOGGER.debug("Registered WebSocket command: %s/card_config", DOMAIN)
+
+    return True
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

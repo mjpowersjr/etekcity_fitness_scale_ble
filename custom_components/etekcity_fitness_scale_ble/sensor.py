@@ -30,6 +30,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     CONF_BODY_METRICS_ENABLED,
     CONF_CALC_BODY_METRICS,
+    CONF_PERSON_ENTITY,
     CONF_SCALE_DISPLAY_UNIT,
     CONF_USER_ID,
     CONF_USER_NAME,
@@ -780,6 +781,7 @@ class ScaleUserDirectorySensor(SensorEntity):
                 "user_id": profile.get(CONF_USER_ID, ""),
                 "name": profile.get(CONF_USER_NAME, ""),
                 "has_body_metrics": profile.get(CONF_BODY_METRICS_ENABLED, False),
+                "person_entity": profile.get(CONF_PERSON_ENTITY),
             }
             users.append(user_data)
 

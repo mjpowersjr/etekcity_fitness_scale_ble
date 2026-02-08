@@ -2311,6 +2311,11 @@ class ScaleDataUpdateCoordinator:
         # Update diagnostic sensors to reflect new pending measurement
         self._notify_diagnostic_sensors()
 
+    @property
+    def device_name(self) -> str:
+        """Get the device name used for entity ID construction."""
+        return self._device_name
+
     def get_user_profiles(self) -> list[dict]:
         """Get all user profiles.
 

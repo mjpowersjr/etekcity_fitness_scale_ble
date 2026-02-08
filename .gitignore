@@ -164,3 +164,7 @@ cython_debug/
 .DS_Store
 CLAUDE.md
 cleanup_ha_storage.py
+
+# Frontend build artifacts
+node_modules/
+frontend-src/dist/

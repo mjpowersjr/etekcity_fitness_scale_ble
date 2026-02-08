@@ -22,7 +22,9 @@
   ],
   "config_flow": true,
   "dependencies": [
-    "bluetooth_adapters"
+    "bluetooth_adapters",
+    "frontend",
+    "http"
   ],
   "documentation": "https://github.com/ronnnnnnnnnnnnn/etekcity_fitness_scale_ble",
   "integration_type": "device",
