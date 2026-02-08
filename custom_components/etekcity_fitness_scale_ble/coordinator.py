@@ -788,18 +788,20 @@ class ScaleDataUpdateCoordinator:
         return [self._normalize_measurement(m) for m in history]
 
     def get_user_history_for_display(self, user_id: str) -> list[dict]:
-        """Get weight history formatted for display with user-friendly keys.
+        """Get weight history formatted for display in the frontend card.
 
-        Converts weight to display unit and uses friendly key names.
+        Converts weight to display unit and returns flat keys matching
+        the frontend WeightMeasurement interface.
 
         Args:
             user_id: The user ID to get history for.
 
         Returns:
-            List of measurement dicts formatted for display with keys:
-            - "Timestamp" (instead of "timestamp")
-            - "Weight (kg)" or "Weight (lbs)" (instead of "weight_kg"/"weight_lb")
-            - "Impedance (Ω)" (instead of "impedance_ohm")
+            List of measurement dicts with keys:
+            - "timestamp": ISO 8601 timestamp string
+            - "weight": numeric weight in display unit
+            - "unit": "kg" or "lbs"
+            - "impedance": impedance in ohms (optional)
         """
         from homeassistant.util.unit_conversion import MassConverter
         from homeassistant.const import UnitOfMass
@@ -810,23 +812,23 @@ class ScaleDataUpdateCoordinator:
 
         display_history = []
         for measurement in history:
-            display_measurement = {}
-            # Timestamp with friendly key
-            display_measurement["Timestamp"] = measurement["timestamp"]
+            display_measurement: dict = {
+                "timestamp": measurement["timestamp"],
+            }
 
-            # Weight with friendly key and unit conversion if needed
             weight_kg = measurement["weight_kg"]
             if is_pounds:
                 weight_lb = MassConverter.convert(
                     weight_kg, UnitOfMass.KILOGRAMS, UnitOfMass.POUNDS
                 )
-                display_measurement["Weight (lbs)"] = round(weight_lb, 2)
+                display_measurement["weight"] = round(weight_lb, 2)
+                display_measurement["unit"] = "lbs"
             else:
-                display_measurement["Weight (kg)"] = round(weight_kg, 2)
+                display_measurement["weight"] = round(weight_kg, 2)
+                display_measurement["unit"] = "kg"
 
-            # Impedance with friendly key
             if "impedance_ohm" in measurement:
-                display_measurement["Impedance (Ω)"] = measurement["impedance_ohm"]
+                display_measurement["impedance"] = measurement["impedance_ohm"]
 
             display_history.append(display_measurement)
 
