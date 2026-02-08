@@ -17,8 +17,10 @@ from homeassistant.helpers import config_validation as cv
 from urllib.parse import unquote
 
 from .const import (
+    ASSIGNMENT_MODE_AUTO,
     CARD_FILENAME,
     CARD_URL_BASE,
+    CONF_ASSIGNMENT_MODE,
     CONF_BIRTHDATE,
     CONF_BODY_METRICS_ENABLED,
     CONF_CALC_BODY_METRICS,
@@ -246,12 +248,21 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 if entity_entry:
                     diagnostics[diag_key] = entity_entry
 
+            # Get assignment mode from config entry
+            entry = hass.config_entries.async_get_entry(entry_id)
+            assignment_mode = ASSIGNMENT_MODE_AUTO
+            if entry:
+                assignment_mode = entry.data.get(
+                    CONF_ASSIGNMENT_MODE, ASSIGNMENT_MODE_AUTO
+                )
+
             scales.append(
                 {
                     "device_id": device_id,
                     "device_name": coord.device_name,
                     "users": users,
                     "diagnostics": diagnostics,
+                    "assignment_mode": assignment_mode,
                 }
             )
 
@@ -422,6 +433,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinator = ScaleDataUpdateCoordinator(hass, address, user_profiles, entry.title)
     coordinator.set_config_entry_id(entry.entry_id)
+    coordinator.set_assignment_mode(
+        entry.data.get(CONF_ASSIGNMENT_MODE, ASSIGNMENT_MODE_AUTO)
+    )
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
 

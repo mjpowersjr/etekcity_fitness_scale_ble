@@ -44,6 +44,9 @@ from homeassistant.const import UnitOfMass
 from homeassistant.util.unit_conversion import MassConverter
 
 from .const import (
+    ASSIGNMENT_MODE_AUTO,
+    ASSIGNMENT_MODE_MANUAL,
+    CONF_ASSIGNMENT_MODE,
     CONF_ENABLE_LIBRARY_LOGGING,
     CONF_HISTORY_RETENTION_DAYS,
     CONF_MAX_HISTORY_SIZE,
@@ -711,6 +714,7 @@ class ScaleDataUpdateCoordinator:
         )  # active notification timestamps
         # Config entry reference for persistence
         self._config_entry_id: str | None = None
+        self._assignment_mode: str = ASSIGNMENT_MODE_AUTO
 
     def set_display_unit(self, unit: WeightUnit) -> None:
         """Set the display unit for the scale.
@@ -738,6 +742,14 @@ class ScaleDataUpdateCoordinator:
             config_entry_id: The config entry ID to store.
         """
         self._config_entry_id = config_entry_id
+
+    def set_assignment_mode(self, mode: str) -> None:
+        """Set the measurement assignment mode.
+
+        Args:
+            mode: Either ASSIGNMENT_MODE_AUTO or ASSIGNMENT_MODE_MANUAL.
+        """
+        self._assignment_mode = mode
 
     def _normalize_measurement(self, measurement: dict) -> dict:
         """Normalize measurement dict to have consistent field order.
@@ -1681,6 +1693,26 @@ class ScaleDataUpdateCoordinator:
         # This ensures consistent timestamps across all code paths (auto-assign, detection, pending)
         measurement_timestamp = datetime.now().isoformat()
 
+        # If manual assignment mode, send ALL measurements to pending
+        if self._assignment_mode == ASSIGNMENT_MODE_MANUAL:
+            all_user_ids = [
+                u.get(CONF_USER_ID)
+                for u in self._user_profiles
+                if u.get(CONF_USER_ID) is not None
+            ]
+            _LOGGER.debug(
+                "Manual assignment mode: sending measurement to pending (weight: %.2f kg, candidates: %s)",
+                weight_kg,
+                all_user_ids,
+            )
+            self._send_to_pending(
+                weight_kg, impedance, all_user_ids, data, measurement_timestamp
+            )
+            _LOGGER.debug(
+                "Finished processing measurement update (manual assignment mode)"
+            )
+            return
+
         # Smart detection logic: Single user auto-assign (skip detection)
         if len(self._user_profiles) == 1:
             user_id = self._user_profiles[0].get(CONF_USER_ID)
@@ -1726,39 +1758,57 @@ class ScaleDataUpdateCoordinator:
             )
         elif len(candidates) > 1:
             # Multiple candidates - store as pending and notify
-            # Reuse measurement_timestamp for consistency
-            timestamp = measurement_timestamp
-            # Store only raw measurements (body metrics will be calculated on assignment)
-            raw_measurements = self._extract_raw_measurements(data)
-            self._pending_measurements[timestamp] = {
-                "measurements": raw_measurements,
-                "candidates": candidates,
-                "notified_mobile_services": [],  # Will be populated when notifications sent
-            }
-
-            # Keep only last N pending measurements (FIFO cleanup)
-            self._cleanup_old_pending_measurements()
-
-            # Schedule async notification (runs in background)
-            async def _safe_create_notification() -> None:
-                """Safely create ambiguous notification with error handling."""
-                try:
-                    await self._create_ambiguous_notification(
-                        weight_kg, impedance, candidates, timestamp
-                    )
-                except Exception as ex:
-                    _LOGGER.error(
-                        "Failed to create ambiguous notification (timestamp: %s, error: %s)",
-                        timestamp,
-                        ex,
-                    )
-
-            self._hass.async_create_task(_safe_create_notification())
-
-            # Notify diagnostic sensors about pending measurements update
-            self._notify_diagnostic_sensors()
+            self._send_to_pending(
+                weight_kg, impedance, candidates, data, measurement_timestamp
+            )
 
         _LOGGER.debug("Finished processing measurement update")
+
+    def _send_to_pending(
+        self,
+        weight_kg: float,
+        impedance: float | None,
+        candidates: list[str],
+        data: ScaleData,
+        timestamp: str,
+    ) -> None:
+        """Store a measurement as pending and send notifications.
+
+        Args:
+            weight_kg: Weight in kilograms.
+            impedance: Impedance in ohms (or None).
+            candidates: List of candidate user IDs.
+            data: The scale data containing raw measurements.
+            timestamp: ISO timestamp for this measurement.
+        """
+        raw_measurements = self._extract_raw_measurements(data)
+        self._pending_measurements[timestamp] = {
+            "measurements": raw_measurements,
+            "candidates": candidates,
+            "notified_mobile_services": [],
+        }
+
+        # Keep only last N pending measurements (FIFO cleanup)
+        self._cleanup_old_pending_measurements()
+
+        # Schedule async notification (runs in background)
+        async def _safe_create_notification() -> None:
+            """Safely create ambiguous notification with error handling."""
+            try:
+                await self._create_ambiguous_notification(
+                    weight_kg, impedance, candidates, timestamp
+                )
+            except Exception as ex:
+                _LOGGER.error(
+                    "Failed to create ambiguous notification (timestamp: %s, error: %s)",
+                    timestamp,
+                    ex,
+                )
+
+        self._hass.async_create_task(_safe_create_notification())
+
+        # Notify diagnostic sensors about pending measurements update
+        self._notify_diagnostic_sensors()
 
     def _route_to_user_internal(
         self, user_id: str, data: ScaleData, timestamp: str

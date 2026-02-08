@@ -23,6 +23,9 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_conversion import DistanceConverter
 
 from .const import (
+    ASSIGNMENT_MODE_AUTO,
+    ASSIGNMENT_MODE_MANUAL,
+    CONF_ASSIGNMENT_MODE,
     CONF_BIRTHDATE,
     CONF_BODY_METRICS_ENABLED,
     CONF_CALC_BODY_METRICS,
@@ -1338,6 +1341,7 @@ class ScaleOptionsFlow(OptionsFlow):
             new_data = {
                 **self.config_entry.data,
                 CONF_SCALE_DISPLAY_UNIT: user_input[CONF_SCALE_DISPLAY_UNIT],
+                CONF_ASSIGNMENT_MODE: user_input[CONF_ASSIGNMENT_MODE],
             }
             self.hass.config_entries.async_update_entry(
                 self.config_entry, data=new_data
@@ -1347,6 +1351,10 @@ class ScaleOptionsFlow(OptionsFlow):
             await self.hass.config_entries.async_reload(self.config_entry.entry_id)
 
             return self.async_create_entry(title="", data={})
+
+        current_assignment_mode = self.config_entry.data.get(
+            CONF_ASSIGNMENT_MODE, ASSIGNMENT_MODE_AUTO
+        )
 
         return self.async_show_form(
             step_id="scale_settings",
@@ -1358,6 +1366,14 @@ class ScaleOptionsFlow(OptionsFlow):
                         {
                             UnitOfMass.KILOGRAMS: "Metric (kg)",
                             UnitOfMass.POUNDS: "Imperial (lbs)",
+                        }
+                    ),
+                    vol.Required(
+                        CONF_ASSIGNMENT_MODE, default=current_assignment_mode
+                    ): vol.In(
+                        {
+                            ASSIGNMENT_MODE_AUTO: "Auto",
+                            ASSIGNMENT_MODE_MANUAL: "Manual",
                         }
                     ),
                 }

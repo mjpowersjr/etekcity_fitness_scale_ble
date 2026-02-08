@@ -138,9 +138,13 @@
       },
       "scale_settings": {
         "title": "Scale Settings",
-        "description": "Configure scale display unit",
+        "description": "Configure scale display unit and measurement assignment",
         "data": {
-          "scale_display_unit": "Scale Display Unit"
+          "scale_display_unit": "Scale Display Unit",
+          "assignment_mode": "Measurement Assignment"
+        },
+        "data_description": {
+          "assignment_mode": "Auto: measurements are automatically assigned when the scale can identify the user. Manual: all measurements go to pending and must be manually assigned."
         }
       },
       "advanced_settings": {

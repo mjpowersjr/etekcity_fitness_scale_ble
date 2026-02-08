@@ -43,6 +43,11 @@ CONF_MAX_HISTORY_SIZE = "max_history_size"
 # Advanced settings
 CONF_ENABLE_LIBRARY_LOGGING = "enable_library_logging"
 
+# Assignment mode
+CONF_ASSIGNMENT_MODE = "assignment_mode"
+ASSIGNMENT_MODE_AUTO = "auto"
+ASSIGNMENT_MODE_MANUAL = "manual"
+
 # Adaptive tolerance - base calculation (hybrid percentage with bounds)
 DEFAULT_TOLERANCE_PERCENTAGE = 0.04  # 4% of user's weight
 MIN_TOLERANCE_KG = 1.5  # Minimum absolute tolerance
