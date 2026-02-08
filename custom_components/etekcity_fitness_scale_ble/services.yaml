@@ -29,6 +29,25 @@ assign_measurement:
       selector:
         text:
 
+dismiss_measurement:
+  name: Dismiss measurement
+  description: Dismiss a pending weight measurement without assigning it to any user. The measurement is discarded and all related notifications are cleared.
+  fields:
+    device_id:
+      name: Scale
+      description: The scale device.
+      required: true
+      selector:
+        device:
+          integration: etekcity_fitness_scale_ble
+    timestamp:
+      name: Timestamp
+      description: The timestamp of the pending measurement to dismiss (shown in the notification).
+      required: true
+      example: "2025-01-15T10:30:00"
+      selector:
+        text:
+
 reassign_measurement:
   name: Reassign measurement
   description: Reassign a user's measurement to a different user. If no timestamp is provided, the newest measurement is reassigned.

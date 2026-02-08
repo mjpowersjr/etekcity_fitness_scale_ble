@@ -2577,6 +2577,70 @@ class ScaleDataUpdateCoordinator:
 
         return True
 
+    def dismiss_pending_measurement(self, timestamp: str) -> bool:
+        """Dismiss a pending measurement without assigning it to any user.
+
+        Removes the measurement from pending, dismisses persistent and mobile
+        notifications, and notifies diagnostic sensors.
+
+        Args:
+            timestamp: ISO timestamp of the pending measurement to dismiss.
+
+        Returns:
+            True if dismissal succeeded, False otherwise.
+        """
+        if timestamp not in self._pending_measurements:
+            _LOGGER.warning(
+                "No pending measurement found for timestamp: %s (cannot dismiss)",
+                timestamp,
+            )
+            return False
+
+        pending_data = self._pending_measurements.pop(timestamp)
+        notified_services = pending_data.get("notified_mobile_services", [])
+
+        _LOGGER.debug(
+            "Dismissed pending measurement from %s (weight: %.2f kg)",
+            timestamp,
+            pending_data["measurements"].get("weight"),
+        )
+
+        # Clean up tracking structures
+        self._ambiguous_notifications.discard(timestamp)
+
+        # Dismiss the persistent notification
+        notification_id = f"etekcity_scale_{self.address}_{timestamp}"
+        _LOGGER.debug(
+            "Dismissing persistent notification with ID: %s",
+            notification_id,
+        )
+        persistent_notification.dismiss(
+            self._hass,
+            notification_id=notification_id,
+        )
+
+        # Dismiss all mobile notifications for this measurement
+        tag = f"scale_measurement_{timestamp}"
+        for user_id_notified, service_name in notified_services:
+            self._hass.async_create_task(
+                self._hass.services.async_call(
+                    "notify",
+                    service_name,
+                    {"message": "clear_notification", "data": {"tag": tag}},
+                )
+            )
+            _LOGGER.debug(
+                "Dismissed mobile notification for user %s on %s (tag: %s)",
+                user_id_notified,
+                service_name,
+                tag,
+            )
+
+        # Notify diagnostic sensors about pending measurements update
+        self._notify_diagnostic_sensors()
+
+        return True
+
     def reassign_user_measurement(
         self, from_user_id: str, to_user_id: str, timestamp: str | None = None
     ) -> bool:

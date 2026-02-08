@@ -50,6 +50,7 @@ DATA_MOBILE_APP_LISTENER_UNSUB = "mobile_app_listener_unsub"
 
 # Service constants
 SERVICE_ASSIGN_MEASUREMENT = "assign_measurement"
+SERVICE_DISMISS_MEASUREMENT = "dismiss_measurement"
 SERVICE_REASSIGN_MEASUREMENT = "reassign_measurement"
 SERVICE_REMOVE_MEASUREMENT = "remove_measurement"
 ATTR_TIMESTAMP = "timestamp"
@@ -62,6 +63,13 @@ SERVICE_ASSIGN_MEASUREMENT_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_TIMESTAMP): cv.string,
         vol.Required(ATTR_USER_ID): cv.string,
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
+SERVICE_DISMISS_MEASUREMENT_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_TIMESTAMP): cv.string,
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -569,6 +577,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 f"Please check that the timestamp '{timestamp}' exists in pending measurements."
             )
 
+    async def handle_dismiss_measurement(call: ServiceCall) -> None:
+        """Handle the dismiss_measurement service call."""
+        from homeassistant.exceptions import HomeAssistantError
+
+        device_id = _get_single_device_id(call)
+
+        timestamp = call.data[ATTR_TIMESTAMP]
+
+        _LOGGER.debug(
+            "Service call dismiss_measurement on device %s timestamp=%s",
+            device_id,
+            timestamp,
+        )
+
+        coord = _get_coordinator_for_device(device_id)
+
+        # Validate timestamp exists in pending measurements
+        pending_measurements = coord.get_pending_measurements()
+        if timestamp not in pending_measurements:
+            available_timestamps = sorted(pending_measurements.keys(), reverse=True)[:5]
+            if available_timestamps:
+                timestamp_list = ", ".join(f"'{ts}'" for ts in available_timestamps)
+                raise HomeAssistantError(
+                    f"Measurement timestamp '{timestamp}' not found. "
+                    f"Please check the timestamp and try again. "
+                    f"Available timestamps: {timestamp_list}"
+                )
+            else:
+                raise HomeAssistantError(
+                    f"Measurement timestamp '{timestamp}' not found. "
+                    f"No pending measurements are available for this scale."
+                )
+
+        # Dismiss the pending measurement
+        if not coord.dismiss_pending_measurement(timestamp):
+            raise HomeAssistantError(
+                f"Failed to dismiss measurement. "
+                f"Please check that the timestamp '{timestamp}' exists in pending measurements."
+            )
+
     async def handle_reassign_measurement(call: ServiceCall) -> None:
         """Handle the reassign_measurement service call."""
         from homeassistant.exceptions import HomeAssistantError
@@ -673,6 +721,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             schema=SERVICE_ASSIGN_MEASUREMENT_SCHEMA,
         )
         _LOGGER.debug("Registered service: %s.%s", DOMAIN, SERVICE_ASSIGN_MEASUREMENT)
+
+    if not hass.services.has_service(DOMAIN, SERVICE_DISMISS_MEASUREMENT):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_DISMISS_MEASUREMENT,
+            handle_dismiss_measurement,
+            schema=SERVICE_DISMISS_MEASUREMENT_SCHEMA,
+        )
+        _LOGGER.debug("Registered service: %s.%s", DOMAIN, SERVICE_DISMISS_MEASUREMENT)
 
     if not hass.services.has_service(DOMAIN, SERVICE_REASSIGN_MEASUREMENT):
         hass.services.async_register(
@@ -854,6 +911,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.services.async_remove(DOMAIN, SERVICE_ASSIGN_MEASUREMENT)
             _LOGGER.debug(
                 "Unregistered service: %s.%s", DOMAIN, SERVICE_ASSIGN_MEASUREMENT
+            )
+            hass.services.async_remove(DOMAIN, SERVICE_DISMISS_MEASUREMENT)
+            _LOGGER.debug(
+                "Unregistered service: %s.%s", DOMAIN, SERVICE_DISMISS_MEASUREMENT
             )
             hass.services.async_remove(DOMAIN, SERVICE_REASSIGN_MEASUREMENT)
             _LOGGER.debug(
